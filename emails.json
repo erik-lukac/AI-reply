@@ -1,0 +1,14 @@
+[
+  {
+    "sender": "alice@example.com",
+    "subject": "Project Update",
+    "html_text": "<p>Hi, please see the attached update...</p>",
+    "date": "Mon, 3 Feb 2025 10:00:00 -0500"
+  },
+  {
+    "sender": "bob@example.com",
+    "subject": "Meeting Reminder",
+    "html_text": "<p>Don't forget our meeting tomorrow.</p>",
+    "date": "Tue, 4 Feb 2025 09:00:00 -0500"
+  }
+]
