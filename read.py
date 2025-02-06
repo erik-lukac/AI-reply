@@ -33,16 +33,10 @@ def build_query(args: argparse.Namespace) -> str:
     """
     query_parts = []
     if args.label:
-        # Gmail supports searching by label with "label:" operator.
         query_parts.append(f"label:{args.label}")
     if args.unread:
-        # "is:unread" or "is:read" operators.
-        if args.unread.lower() == "yes":
-            query_parts.append("is:unread")
-        elif args.unread.lower() == "no":
-            query_parts.append("is:read")
+        query_parts.append("is:unread")
     if args.subject:
-        # Enclose subject text in quotes to handle spaces.
         query_parts.append(f'subject:"{args.subject}"')
     if args.sender:
         query_parts.append(f'from:{args.sender}')
@@ -167,7 +161,7 @@ def main():
         description="Read emails with filters. Use the options below to define your search criteria."
     )
     parser.add_argument('--label', type=str, help='Label to filter emails (e.g., INBOX, STARRED)')
-    parser.add_argument('--unread', type=str, choices=['yes', 'no'], help='Filter unread emails: "yes" for unread, "no" for read')
+    parser.add_argument('--unread', action='store_true', help='Filter unread emails')  # Changed to flag
     parser.add_argument('--subject', type=str, help='Text to filter the email subject')
     parser.add_argument('--sender', type=str, help='Sender email address to filter')
     args = parser.parse_args()
@@ -188,8 +182,16 @@ def main():
     emails = list_filtered_emails(service, query)
     logging.info(f"Found {len(emails)} emails matching the criteria.")
 
-    # Output the emails as formatted JSON.
-    print(json.dumps(emails, indent=2))
+    # Print to console
+    print(json.dumps(emails, indent=2, ensure_ascii=False))
+    
+    # Save to file with error handling
+    try:
+        with open('emails.json', 'w', encoding='utf-8') as f:
+            json.dump(emails, f, indent=2, ensure_ascii=False)
+        logging.info("Emails successfully saved to emails.json")
+    except Exception as e:
+        logging.error(f"Failed to save emails to file: {e}")
 
 
 if __name__ == '__main__':
