@@ -1,3 +1,12 @@
+#general
+pip
+
+#Gmail
 google-api-python-client
 google-auth
 google-auth-oauthlib
+
+#embeddings 
+tiktoken
+nltk
+openai

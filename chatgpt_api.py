@@ -156,7 +156,7 @@ def main() -> None:
     Main function to parse arguments, query the API, and output the result.
     """
     args = parse_arguments()
-    api_key = load_api_key("chatgpt_api.key")
+    api_key = load_api_key("openai_api.key")
     messages = build_messages(user_input=args.input, system=args.system)
     response_text = query_chatgpt(api_key=api_key, model=args.model, messages=messages)
     output = {"text": response_text}

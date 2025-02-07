@@ -1,2 +1,3 @@
-chatgpt_api.key
+openai_api.key
 credentials.json
+chunks/
