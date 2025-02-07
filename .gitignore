@@ -1,3 +1,7 @@
+
 openai_api.key
 credentials.json
+tocken.pickle
 chunks/
+venv/
+__pycache__/
