@@ -5,3 +5,4 @@ tocken.pickle
 chunks/
 venv/
 __pycache__/
+embeddings/chroma_db/
