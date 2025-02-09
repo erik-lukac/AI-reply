@@ -1,1 +1,0 @@
-python3 -c "import chromadb; c=chromadb.PersistentClient(path='../embeddings/chroma_db/'); col=c.get_collection(name='text_embeddings'); print('IDs:', col.get()['ids'][:5]); print('Query:', col.query(query_embeddings=[[0.1]*1536], n_results=3))"
