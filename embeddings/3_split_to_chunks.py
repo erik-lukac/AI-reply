@@ -1,22 +1,27 @@
 #!/usr/bin/env python3
 """
-3_chunking.py
+4_chunking.py
 
 This script reads a large text file and splits it into overlapping, token-based chunks.
 It is designed to prepare text for embeddings with the text-embedding-3-small model,
 which supports up to 8,191 tokens per request. We use a default chunk size of 1,000 tokens
 with an overlap of 150 tokens, but these values can be adjusted via command-line arguments.
 
-Usage:
-    python3 3_chunking.py --input path/to/your_file.txt [--output-dir chunks] [--chunk-size 1000] [--overlap 150]
+Additionally, the script calculates and logs the token count before chunking and the sum of tokens
+across all chunks after chunking.
 
-Example:
-    python3 3_chunking.py --input large_document.txt --output-dir output_chunks --chunk-size 1000 --overlap 150
+Usage:
+    python3 4_chunking.py --input path/to/your_file.txt [--output-dir chunks] [--chunk-size 1000] [--overlap 150]
+
+Examples:
+    python3 4_chunking.py --input large_document.txt
+    python3 4_chunking.py --input large_document.txt --output-dir output_chunks --chunk-size 1000 --overlap 150
 """
 
 import argparse
 import logging
 import os
+import sys
 from typing import List
 
 try:
@@ -47,36 +52,49 @@ def chunk_text_with_overlap(text: str, chunk_size: int, overlap: int, encoding_n
     encoding = tiktoken.get_encoding(encoding_name)
     tokens = encoding.encode(text)
     total_tokens = len(tokens)
-    logging.info(f"Total tokens in input: {total_tokens}")
+    logging.debug(f"Total tokens in input (inside chunking function): {total_tokens}")
 
     chunks: List[str] = []
     start = 0
 
-    # Use a sliding window with the specified overlap
+    # Use a sliding window with the specified overlap.
+    # Log each chunk creation at DEBUG level.
     while start < total_tokens:
         end = start + chunk_size
         chunk_tokens = tokens[start:end]
         chunk_text = encoding.decode(chunk_tokens)
         chunks.append(chunk_text)
-        logging.info(f"Created chunk with tokens {start} to {min(end, total_tokens)} (size: {len(chunk_tokens)} tokens)")
+        logging.debug(f"Created chunk with tokens {start} to {min(end, total_tokens)} (size: {len(chunk_tokens)} tokens)")
         start += chunk_size - overlap
 
     return chunks
+
+# Custom ArgumentParser to print epilog (examples) on errors
+class CustomArgumentParser(argparse.ArgumentParser):
+    def error(self, message):
+        # Print usage and epilog (if provided) before the error message.
+        sys.stderr.write(self.format_usage())
+        if self.epilog:
+            sys.stderr.write("\n" + self.epilog + "\n")
+        sys.stderr.write(f"\n{self.prog}: error: {message}\n")
+        sys.exit(2)
 
 def main() -> None:
     """
     Main function:
       - Parses command-line arguments.
       - Reads the input text file.
+      - Tokenizes the text to count tokens before chunking.
       - Splits the text into overlapping chunks using token counts.
+      - Calculates and logs the sum of tokens across all chunks.
       - Writes each chunk to a separate file in the output directory.
-
-    Example usage:
-        python3 3_chunking.py --input large_document.txt --output-dir output_chunks --chunk-size 1000 --overlap 150
     """
-    parser = argparse.ArgumentParser(
+    parser = CustomArgumentParser(
         description="Chunk a text file into overlapping token-based chunks for embeddings.",
-        epilog="Example: python3 3_chunking.py --input large_document.txt --output-dir output_chunks --chunk-size 1000 --overlap 150"
+        epilog="""Examples:
+    python3 4_chunking.py --input large_document.txt
+    python3 4_chunking.py --input large_document.txt --output-dir output_chunks --chunk-size 1000 --overlap 150""",
+        formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument(
         "--input",
@@ -88,7 +106,7 @@ def main() -> None:
         "--output-dir",
         type=str,
         default="chunks",
-        help="Directory to store the output chunk files."
+        help="Directory to store the output chunk files (default: 'chunks')."
     )
     parser.add_argument(
         "--chunk-size",
@@ -109,12 +127,18 @@ def main() -> None:
     chunk_size: int = args.chunk_size
     overlap: int = args.overlap
 
+    # Set logging level to INFO (DEBUG messages will not be shown unless the level is lowered)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+    logging.info(f"Input file: {input_path}")
+    logging.info(f"Output directory: {output_dir}")
+    logging.info(f"Chunk size: {chunk_size} tokens")
+    logging.info(f"Overlap: {overlap} tokens")
 
     if not os.path.isfile(input_path):
         logging.error(f"Input file not found: {input_path}")
         return
 
+    logging.info(f"Reading input file: {input_path}")
     try:
         with open(input_path, "r", encoding="utf-8") as file:
             text = file.read()
@@ -122,23 +146,37 @@ def main() -> None:
         logging.error(f"Failed to read input file: {e}")
         return
 
+    # Calculate token count before chunking
+    encoding = tiktoken.get_encoding(ENCODING_NAME)
+    original_tokens = encoding.encode(text)
+    total_tokens_before = len(original_tokens)
+    logging.info(f"Token count before chunking: {total_tokens_before} tokens")
+
     logging.info("Splitting text into chunks...")
     chunks = chunk_text_with_overlap(text, chunk_size, overlap, ENCODING_NAME)
-    logging.info(f"Total chunks created: {len(chunks)}")
+    logging.info(f"Created {len(chunks)} chunks (each {chunk_size} tokens with {overlap} overlap) in memory.")
+
+    # Calculate the sum of tokens across all chunks
+    sum_tokens_after = sum(len(encoding.encode(chunk)) for chunk in chunks)
+    logging.info(f"Sum of tokens across all chunks: {sum_tokens_after}")
 
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
         logging.info(f"Created output directory: {output_dir}")
 
     base_name: str = os.path.splitext(os.path.basename(input_path))[0]
+    successful_writes = 0
     for i, chunk in enumerate(chunks, start=1):
         output_file: str = os.path.join(output_dir, f"{base_name}_chunk_{i:03d}.txt")
         try:
             with open(output_file, "w", encoding="utf-8") as f:
                 f.write(chunk)
-            logging.info(f"Wrote chunk {i} to {output_file}")
+            successful_writes += 1
+            logging.debug(f"Wrote chunk {i} to {output_file}")
         except Exception as e:
             logging.error(f"Error writing chunk {i}: {e}")
+
+    logging.info(f"Wrote {successful_writes} chunks to {output_dir}")
 
 if __name__ == "__main__":
     main()
