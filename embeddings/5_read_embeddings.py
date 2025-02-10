@@ -8,7 +8,8 @@ The script reads the OpenAI API key from a file defined in the constants section
 
 It returns a hybrid JSON result that includes:
   - "combined_context": a concatenation of the top matching document texts.
-  - "documents": a list of candidate documents (each with "text", "similarity_score", and "metadata").
+  - "documents": a list of candidate documents (each with "text", "similarity_score",
+    "metadata", and now "embedding").
 
 Examples:
     python3 7_embeddings.py --text "Hello world"
@@ -154,7 +155,8 @@ def query_chroma_db(query: str, api_key: str, top_n: int = TOP_N) -> dict:
     
     Returns a dictionary with:
       - "combined_context": concatenated texts of the candidate documents.
-      - "documents": list of candidate documents with keys "text", "similarity_score", and "metadata".
+      - "documents": list of candidate documents with keys "text", "similarity_score",
+        "metadata", and "embedding".
     """
     # Compute the query embedding (this logs one "Computed embedding" message)
     query_embedding = compute_embedding(api_key, query)
@@ -215,7 +217,8 @@ def query_chroma_db(query: str, api_key: str, top_n: int = TOP_N) -> dict:
             candidate_docs.append({
                 "text": doc,
                 "similarity_score": similarity_score,
-                "metadata": metadata
+                "metadata": metadata,
+                "embedding": candidate_embedding.tolist()  # Added embedding to the JSON output
             })
 
         # Sort candidate docs by similarity (highest first)
@@ -279,8 +282,9 @@ def main():
     args = parse_arguments()
     api_key = load_api_key(API_KEY_FILE_PATH)
     result = query_chroma_db(args.text, api_key, top_n=TOP_N)
+    # Print the JSON result with embeddings
+    print(json.dumps(result, indent=2))
     return result
 
 if __name__ == "__main__":
-    # When running as a script, call main() (which returns the JSON result)
-    _ = main()
+    main()
