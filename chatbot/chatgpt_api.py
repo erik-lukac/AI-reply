@@ -124,7 +124,7 @@ def retrieve_embeddings_context(text: str) -> dict:
     Call the embeddings script with the provided text and return its JSON output as a Python dict.
     """
     try:
-        logging.info(f"Calling embeddings script at '{EMBEDDINGS_SCRIPT_PATH}' with text: {text}")
+        logging.info(f"Calling embeddings script at '{EMBEDDINGS_SCRIPT_PATH}' with text: ") #{text}")
         # Run the embeddings script as a subprocess.
         result = subprocess.run(
             ["python", EMBEDDINGS_SCRIPT_PATH, "--text", text],
@@ -190,7 +190,7 @@ def main() -> None:
 
     # Log the complete messages list as a compact JSON string.
     messages_json = json.dumps(messages, separators=(',', ':'))
-    logging.info(f"Message to OpenAI: {messages_json}")
+    logging.info(f"Message to OpenAI: ") #{messages_json}")
 
     response_text = query_chatgpt(api_key=api_key, messages=messages)
     output = {"text": response_text}
