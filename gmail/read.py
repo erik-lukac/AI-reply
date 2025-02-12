@@ -12,10 +12,22 @@ arguments. It outputs a JSON list where each email object has the following fiel
   - email  (the HTML body of the email)
 
 Usage examples:
-  python read.py --label INBOX --unread yes
-  python read.py --subject "Meeting" --sender "boss@example.com"
+  python read.py --label INBOX --unread --subject "Meeting" --sender "boss@example.com"
 """
 
+# =============================================================================
+# CONSTANTS SECTION
+# =============================================================================
+import os
+
+# Default path to credentials.json (located in the parent directory of this script)
+DEFAULT_CREDENTIALS_PATH = os.path.join(os.path.dirname(__file__), '..', 'credentials.json')
+# Default output file for saving the emails
+DEFAULT_OUTPUT_FILE = "emails.json"
+
+# =============================================================================
+# STANDARD LIBRARY IMPORTS
+# =============================================================================
 import argparse
 import sys
 import json
@@ -24,9 +36,13 @@ from typing import Dict, Any, List
 import base64
 import email
 
+# Import the Gmail API authentication helper.
 from gmail_auth import get_gmail_service
 
 
+# =============================================================================
+# FUNCTIONS
+# =============================================================================
 def build_query(args: argparse.Namespace) -> str:
     """
     Build a Gmail search query from the provided command-line arguments.
@@ -56,7 +72,7 @@ def extract_html_from_email(parsed_email: email.message.Message) -> str:
         for part in parsed_email.walk():
             content_type = part.get_content_type()
             content_disposition = str(part.get("Content-Disposition"))
-            # We skip attachments.
+            # Skip attachments.
             if content_type == "text/html" and "attachment" not in content_disposition:
                 try:
                     charset = part.get_content_charset() or "utf-8"
@@ -76,7 +92,6 @@ def extract_html_from_email(parsed_email: email.message.Message) -> str:
                 logging.error(f"Error decoding HTML content: {e}")
                 html_body = f"Error decoding HTML content: {e}"
     
-    # Fallback if no HTML found.
     if not html_body:
         html_body = "No HTML content found."
     
@@ -86,33 +101,23 @@ def extract_html_from_email(parsed_email: email.message.Message) -> str:
 def get_message_details(service, message_id: str) -> Dict[str, Any]:
     """
     Retrieve detailed information for a given message ID.
-    This version fetches the raw email content (full MIME source), decodes it,
-    and extracts the HTML body along with sender, subject, time, labels, and unread status.
+    Decodes the raw email content and extracts relevant information.
     """
-    # Request the raw message from Gmail.
     message = service.users().messages().get(userId='me', id=message_id, format='raw').execute()
-    
-    # Get the raw email content and decode it.
     raw_data = message.get('raw')
     try:
         raw_email = base64.urlsafe_b64decode(raw_data.encode('ASCII')).decode('utf-8', errors='replace')
     except Exception as e:
         raw_email = f"Error decoding raw email: {e}"
     
-    # Parse the raw email to extract headers and body parts.
     parsed_email = email.message_from_string(raw_email)
     sender = parsed_email.get('From', '')
     subject = parsed_email.get('Subject', '')
     time = parsed_email.get('Date', '')
     
-    # Extract the HTML body.
     html_body = extract_html_from_email(parsed_email)
-    
-    # Get label IDs (e.g., "INBOX", "UNREAD", etc.) from the message metadata.
     labels = message.get('labelIds', [])
-    unread = 'UNREAD' in labels  # True if the UNREAD label is present.
-    
-    # Format the labels as a comma-separated string.
+    unread = 'UNREAD' in labels
     label_str = ", ".join(labels) if labels else ""
     
     return {
@@ -121,7 +126,6 @@ def get_message_details(service, message_id: str) -> Dict[str, Any]:
         "time": time,
         "label": label_str,
         "unread": unread,
-        # Now returns the HTML body of the email.
         "email": html_body,
     }
 
@@ -132,7 +136,6 @@ def list_filtered_emails(service, query: str) -> List[Dict[str, Any]]:
     Retrieves detailed information for each email.
     """
     emails = []
-    # Initial call to list messages. Note: results may be paginated.
     response = service.users().messages().list(userId='me', q=query).execute()
     messages = response.get('messages', [])
 
@@ -145,7 +148,6 @@ def list_filtered_emails(service, query: str) -> List[Dict[str, Any]]:
             except Exception as e:
                 logging.error(f"Failed to retrieve details for message ID {message_id}: {e}")
         
-        # Check if there is a next page.
         page_token = response.get('nextPageToken')
         if page_token:
             response = service.users().messages().list(userId='me', q=query, pageToken=page_token).execute()
@@ -160,10 +162,24 @@ def main():
     parser = argparse.ArgumentParser(
         description="Read emails with filters. Use the options below to define your search criteria."
     )
+    
+    # Parameterize key file paths.
+    parser.add_argument("--credentials", type=str, default=DEFAULT_CREDENTIALS_PATH,
+                        help=f"Path to credentials.json (default: {DEFAULT_CREDENTIALS_PATH})")
+    parser.add_argument("--output", type=str, default=DEFAULT_OUTPUT_FILE,
+                        help=f"Output file for saving emails (default: {DEFAULT_OUTPUT_FILE})")
+    
+    # Email filter arguments.
     parser.add_argument('--label', type=str, help='Label to filter emails (e.g., INBOX, STARRED)')
-    parser.add_argument('--unread', action='store_true', help='Filter unread emails')  # Changed to flag
+    parser.add_argument('--unread', action='store_true', help='Filter unread emails')
     parser.add_argument('--subject', type=str, help='Text to filter the email subject')
     parser.add_argument('--sender', type=str, help='Sender email address to filter')
+
+    # Show help if no arguments are provided.
+    if len(sys.argv) == 1:
+        parser.print_help()
+        sys.exit(1)
+
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -171,25 +187,31 @@ def main():
         format="%(asctime)s - %(levelname)s - %(message)s"
     )
 
-    # Build the query based on the provided arguments.
+    # =============================================================================
+    # CHANGE WORKING DIRECTORY BASED ON CREDENTIALS PATH
+    # =============================================================================
+    os.chdir(os.path.dirname(args.credentials))
+    logging.info(f"Changed working directory to {os.getcwd()} to locate credentials.json.")
+
+    # Build the Gmail query.
     query = build_query(args)
     logging.info(f"Using query: {query}")
 
-    # Authenticate and build the Gmail API service.
+    # Initialize the Gmail service.
     service = get_gmail_service()
 
-    # Retrieve emails matching the query.
+    # Retrieve matching emails.
     emails = list_filtered_emails(service, query)
     logging.info(f"Found {len(emails)} emails matching the criteria.")
 
-    # Print to console
+    # Print emails to the console.
     print(json.dumps(emails, indent=2, ensure_ascii=False))
     
-    # Save to file with error handling
+    # Save emails to the output file.
     try:
-        with open('emails.json', 'w', encoding='utf-8') as f:
+        with open(args.output, 'w', encoding='utf-8') as f:
             json.dump(emails, f, indent=2, ensure_ascii=False)
-        logging.info("Emails successfully saved to emails.json")
+        logging.info(f"Emails successfully saved to {args.output}")
     except Exception as e:
         logging.error(f"Failed to save emails to file: {e}")
 
