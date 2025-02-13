@@ -4,12 +4,13 @@ read.py
 
 This script reads emails from your Gmail account using filters provided via command-line
 arguments. It outputs a JSON list where each email object has the following fields:
+  - id          (the Gmail message id)
   - sender
   - subject
   - time
   - label
   - unread
-  - email  (the HTML body of the email)
+  - email       (the HTML body of the email)
 
 Usage examples:
   python read.py --label INBOX --unread --subject "Meeting" --sender "boss@example.com"
@@ -121,6 +122,7 @@ def get_message_details(service, message_id: str) -> Dict[str, Any]:
     label_str = ", ".join(labels) if labels else ""
     
     return {
+        "id": message_id,  # Added email id
         "sender": sender,
         "subject": subject,
         "time": time,
