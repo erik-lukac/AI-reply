@@ -2,17 +2,19 @@
 """
 folder_subscribe.py
 
-This script sets up a Gmail watch on a specified Gmail label (folder) and listens
+This module sets up a Gmail watch on a specified Gmail label (folder) and listens
 for push notifications via Google Cloud Pub/Sub. It uses:
   - OAuth user credentials (credentials.json + token.pickle) for Gmail API access.
   - A service account JSON for Pub/Sub subscriber authentication.
 
-When a push notification is received, the script will:
+When a push notification is received, the module will:
   1. Extract the `historyId` from the notification.
   2. Query the Gmail history to find newly added messages.
   3. Display the new message IDs (and optionally fetch full message details).
 
-Usage example:
+This module can be imported to use its core functions or executed directly as a CLI.
+
+Usage example (CLI):
   python folder_subscribe.py --label autoreply
 """
 
@@ -21,6 +23,7 @@ import sys
 import logging
 import json
 import argparse
+from typing import Optional
 
 # Unified credential imports from gmail_auth.py
 from gmail_auth import (
@@ -34,6 +37,18 @@ from gmail_auth import (
 from google.cloud import pubsub_v1
 
 # =============================================================================
+# MODULE PUBLIC API
+# =============================================================================
+__all__ = [
+    "get_label_id",
+    "setup_gmail_watch",
+    "process_history",
+    "pubsub_callback",
+    "listen_for_pubsub_messages",
+    "main",
+]
+
+# =============================================================================
 # CONSTANTS SECTION
 # =============================================================================
 
@@ -45,14 +60,14 @@ PROJECT_ID: str = "thematic-center-449912-b0"
 PUBSUB_TOPIC: str = f"projects/{PROJECT_ID}/topics/autoreply"
 PUBSUB_SUBSCRIPTION: str = f"projects/{PROJECT_ID}/subscriptions/autoreply-sub"
 
-#: We'll store the Gmail service globally once initialized
+#: Global variable to store the Gmail service (used in the callback)
 gmail_service = None
 
 # =============================================================================
 # FUNCTIONS
 # =============================================================================
 
-def get_label_id(service, label_name: str) -> str | None:
+def get_label_id(service, label_name: str) -> Optional[str]:
     """
     Retrieve the Gmail label ID for the specified label name.
     """
@@ -120,6 +135,7 @@ def pubsub_callback(message) -> None:
 
         history_id = notification.get("historyId")
         if history_id:
+            # Use the global gmail_service to process history.
             process_history(gmail_service, history_id)
         else:
             logging.warning("No historyId found in the notification.")
@@ -134,7 +150,6 @@ def listen_for_pubsub_messages(subscription: str, service_account_file: str) -> 
     Listen on the specified Pub/Sub subscription for incoming messages,
     using a service account for authentication.
     """
-    # Load the service account credentials (Pub/Sub)
     try:
         creds = get_service_account_credentials(service_account_path=service_account_file)
     except FileNotFoundError as fnfe:
@@ -149,17 +164,20 @@ def listen_for_pubsub_messages(subscription: str, service_account_file: str) -> 
     logging.info(f"Listening for messages on subscription: {subscription} ...")
 
     try:
-        streaming_pull_future.result()  # This blocks indefinitely
+        streaming_pull_future.result()  # This blocks indefinitely.
     except Exception as e:
         logging.error(f"Error while listening for Pub/Sub messages: {e}")
         streaming_pull_future.cancel()
 
 
-# =============================================================================
-# MAIN
-# =============================================================================
+def main(args_list: Optional[list] = None) -> None:
+    """
+    Main entry point for setting up a Gmail watch on a specified label and listening
+    for push notifications via Pub/Sub.
 
-def main():
+    When used as a module, an optional list of arguments can be provided.
+    If no arguments are passed, it defaults to sys.argv[1:].
+    """
     global gmail_service
 
     parser = argparse.ArgumentParser(
@@ -184,29 +202,31 @@ def main():
         help=f"Path to the service account JSON (default: {DEFAULT_SERVICE_ACCOUNT_PATH})"
     )
 
-    args = parser.parse_args()
+    if args_list is None:
+        args_list = sys.argv[1:]
+    args = parser.parse_args(args_list)
 
-    # Configure logging
+    # Configure logging.
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-    # If you want to replicate the original "cd" approach
+    # Replicate the original behavior of changing directories to locate credentials.
     os.chdir(os.path.dirname(args.credentials))
     logging.info(f"Changed working directory to {os.getcwd()} to locate user OAuth credentials.")
 
-    # 1. Authenticate with Gmail using user OAuth
+    # 1. Authenticate with Gmail using user OAuth.
     gmail_service = get_gmail_service(credentials_file=args.credentials)
 
-    # 2. Retrieve the label ID
+    # 2. Retrieve the label ID.
     label_id = get_label_id(gmail_service, args.label)
     if not label_id:
         logging.error(f"Label '{args.label}' not found in your Gmail account.")
         sys.exit(1)
     logging.info(f"Found label '{args.label}' with ID: {label_id}")
 
-    # 3. Set up Gmail push notifications for that label
+    # 3. Set up Gmail push notifications for that label.
     setup_gmail_watch(gmail_service, label_id, PUBSUB_TOPIC)
 
-    # 4. Listen for incoming Pub/Sub notifications, using the service account
+    # 4. Listen for incoming Pub/Sub notifications using the provided service account.
     listen_for_pubsub_messages(PUBSUB_SUBSCRIPTION, args.service_account)
 
 

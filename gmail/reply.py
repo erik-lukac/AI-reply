@@ -2,8 +2,11 @@
 """
 reply.py
 
-This script creates a reply for an email using Gmail API authentication.
+This module creates a reply for an email using Gmail API authentication.
 It reads email details from a JSON file and sends a reply via the Gmail API.
+
+This module can be imported and its functions used programmatically.
+When executed as a script, it parses CLI arguments and performs the reply action.
 
 Usage examples:
     # Reply to the first email in emails.json:
@@ -23,7 +26,7 @@ Usage examples:
     
     # Reply with custom signature file:
     python reply.py --recipient "user@example.com" --response "Thank you" --signature "path/to/custom_signature.html"
-
+    
 Mandatory arguments:
   --recipient : The email address to reply to
 
@@ -37,9 +40,6 @@ Optional arguments:
   --draft       : Store as unread draft instead of sending
 """
 
-# =============================================================================
-# STANDARD LIBRARY IMPORTS
-# =============================================================================
 import argparse
 import json
 import sys
@@ -48,7 +48,7 @@ import os
 import base64
 from email.mime.text import MIMEText
 from email.header import decode_header, make_header
-from typing import Any, List, Dict
+from typing import Any, List, Dict, Optional
 
 # =============================================================================
 # IMPORT AUTH
@@ -56,14 +56,26 @@ from typing import Any, List, Dict
 from gmail_auth import get_gmail_service, DEFAULT_CREDENTIALS_PATH
 
 # =============================================================================
-# CONSTANTS SECTION (non-auth constants only)
+# MODULE PUBLIC API
+# =============================================================================
+__all__ = [
+    "decode_mime_header",
+    "load_original_emails",
+    "load_signature",
+    "build_reply_message",
+    "create_draft",
+    "mark_message_unread",
+    "send_message",
+    "main",
+]
+
+# =============================================================================
+# CONSTANTS SECTION
 # =============================================================================
 DEFAULT_EMAIL_DETAILS_FILE: str = "emails.json"
 DEFAULT_SIGNATURE_FILE: str = "signature.html"
 
-# =============================================================================
-# FUNCTIONS
-# =============================================================================
+
 def decode_mime_header(header_value: str) -> str:
     """
     Decode a MIME-encoded header (like a sender or subject) into a Unicode string.
@@ -119,10 +131,10 @@ def load_signature(signature_path: str = DEFAULT_SIGNATURE_FILE) -> str:
 def build_reply_message(
     recipient: str,
     original_email: Dict[str, Any],
-    response: str | None = None,
-    cc_list: List[str] | None = None,
-    label: str | None = None,
-    signature: str | None = None
+    response: Optional[str] = None,
+    cc_list: Optional[List[str]] = None,
+    label: Optional[str] = None,
+    signature: Optional[str] = None
 ) -> MIMEText:
     """
     Build a MIME reply message that mimics Gmail’s native reply format.
@@ -131,13 +143,11 @@ def build_reply_message(
     orig_subject: str = decode_mime_header(original_email.get("subject", "No Subject"))
     orig_sender: str = decode_mime_header(original_email.get("sender", "Unknown Sender"))
     orig_date: str = original_email.get("time", original_email.get("date", "Unknown Date"))
+    # Use "html_text" if available; otherwise, fallback to the "email" field.
     orig_html: str = original_email.get("html_text", original_email.get("email", ""))
 
     # Ensure the reply subject begins with "Re:" (if not already present).
-    if not orig_subject.lower().startswith("re:"):
-        reply_subject = f"Re: {orig_subject}"
-    else:
-        reply_subject = orig_subject
+    reply_subject = orig_subject if orig_subject.lower().startswith("re:") else f"Re: {orig_subject}"
 
     # Quoted header line.
     quoted_header = (
@@ -213,7 +223,13 @@ def send_message(service: Any, mime_msg: MIMEText) -> Dict[str, Any]:
     return message
 
 
-def main() -> None:
+def main(args_list: Optional[List[str]] = None) -> None:
+    """
+    Main entry point for creating and sending (or drafting) a reply email using the Gmail API.
+    
+    When used as a module, an optional list of arguments can be provided.
+    If no arguments are passed, it defaults to sys.argv[1:].
+    """
     parser = argparse.ArgumentParser(
         description="Create a reply email using Gmail API.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -227,10 +243,9 @@ Examples:
     
     # Reply with custom response:
     python reply.py --recipient user@example.com --response "Thank you"
-    """
+        """
     )
 
-    # Parameterize key file paths (for authentication, we rely on gmail_auth defaults)
     parser.add_argument(
         "--credentials",
         type=str,
@@ -250,29 +265,28 @@ Examples:
         help=f"Use signature from file (default: {DEFAULT_SIGNATURE_FILE})"
     )
 
-    # Other arguments
     parser.add_argument("--recipient", type=str, required=True, help="Email address of the recipient")
     parser.add_argument("--response", type=str, help="Custom response text/HTML to use in reply")
     parser.add_argument("--cc", type=str, help='JSON array of CC recipients (e.g. \'["john@doe.com"]\')')
     parser.add_argument("--label", type=str, help="Label to add to the email")
     parser.add_argument("--draft", action="store_true", help="Store as unread draft instead of sending")
 
-    # Show help if no arguments are provided
-    if len(sys.argv) == 1:
+    if args_list is None:
+        args_list = sys.argv[1:]
+    if not args_list:
         parser.print_help()
         sys.exit(1)
 
-    args = parser.parse_args()
+    args = parser.parse_args(args_list)
 
-    # Configure logging
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-    # If you want to replicate the original behavior of changing directories:
+    # Change directory to locate credentials.json (if needed)
     os.chdir(os.path.dirname(args.credentials))
     logging.info(f"Changed working directory to {os.getcwd()} to locate credentials.json.")
 
-    # Process the CC list if provided
-    cc_list: List[str] | None = None
+    # Process the CC list if provided.
+    cc_list: Optional[List[str]] = None
     if args.cc:
         try:
             parsed_cc = json.loads(args.cc)
@@ -286,17 +300,17 @@ Examples:
             logging.error(f"Error processing CC list: {e}")
             sys.exit(1)
 
-    # Load signature if requested
-    signature_str: str | None = None
+    # Load signature if requested.
+    signature_str: Optional[str] = None
     if args.signature:
         signature_str = load_signature(args.signature)
 
     try:
-        # Initialize Gmail service with the user-specified credentials path (or default from gmail_auth)
+        # Initialize Gmail service using gmail_auth.
         service = get_gmail_service(credentials_file=args.credentials)
         logging.info("Gmail service initialized successfully.")
 
-        # Load original emails
+        # Load original emails.
         emails = load_original_emails(args.original)
         results: List[Dict[str, Any]] = []
 
@@ -314,7 +328,6 @@ Examples:
             if args.draft:
                 result = create_draft(service, mime_msg)
                 message_id: str = result["message"]["id"]
-                # Mark draft unread
                 mark_message_unread(service, message_id)
                 logging.info(f"Draft {idx} created and marked as unread.")
             else:
@@ -323,9 +336,7 @@ Examples:
             
             results.append(result)
 
-        # Output the results as JSON
         print(json.dumps(results, indent=2))
-
     except Exception as e:
         logging.error(f"Fatal error: {e}")
         sys.exit(1)

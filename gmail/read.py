@@ -2,7 +2,7 @@
 """
 read.py
 
-This script reads emails from your Gmail account using filters provided via command-line
+This module reads emails from your Gmail account using filters provided via command-line
 arguments. It outputs a JSON list where each email object has the following fields:
   - id          (the Gmail message id)
   - sender
@@ -11,6 +11,9 @@ arguments. It outputs a JSON list where each email object has the following fiel
   - label
   - unread
   - email       (the HTML body of the email)
+
+This module can be imported and its functions used programmatically. When executed
+as a script, it provides a CLI interface.
 
 Usage example:
   python read.py --label INBOX --unread --subject "Meeting" --sender "boss@example.com"
@@ -32,6 +35,17 @@ from typing import Dict, Any, List
 # IMPORT AUTH
 # =============================================================================
 from gmail_auth import get_gmail_service, DEFAULT_CREDENTIALS_PATH
+
+# =============================================================================
+# MODULE PUBLIC API
+# =============================================================================
+__all__ = [
+    "build_query",
+    "extract_html_from_email",
+    "get_message_details",
+    "list_filtered_emails",
+    "main",
+]
 
 # =============================================================================
 # CONSTANTS SECTION (Output file only, credentials remain in gmail_auth)
@@ -163,9 +177,12 @@ def list_filtered_emails(service: Any, query: str) -> List[Dict[str, Any]]:
     return emails
 
 
-def main() -> None:
+def main(args_list: List[str] | None = None) -> None:
     """
-    Main entry point for reading and filtering emails via Gmail API.
+    Main entry point for reading and filtering emails via the Gmail API.
+
+    When used as a module, an optional list of arguments can be provided.
+    If no arguments are passed, it defaults to sys.argv[1:].
     """
     parser = argparse.ArgumentParser(
         description="Read emails with filters. Use the options below to define your search criteria.",
@@ -176,7 +193,7 @@ Examples:
 """
     )
 
-    # Allow the user to override the credentials path, but the default now comes from gmail_auth.py
+    # Allow the user to override the credentials path; default comes from gmail_auth.py
     parser.add_argument(
         "--credentials",
         type=str,
@@ -196,41 +213,50 @@ Examples:
     parser.add_argument("--subject", type=str, help="Text to filter the email subject")
     parser.add_argument("--sender", type=str, help="Sender email address to filter")
 
-    # Show help if no arguments are provided.
-    if len(sys.argv) == 1:
+    # Use provided args_list if available, otherwise sys.argv[1:]
+    if args_list is None:
+        args_list = sys.argv[1:]
+    if not args_list:
         parser.print_help()
         sys.exit(1)
 
-    args = parser.parse_args()
+    args = parser.parse_args(args_list)
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-    # If you still want to replicate the original behavior of changing directory:
+    # Replicates the original behavior of changing directory to locate credentials.json.
     os.chdir(os.path.dirname(args.credentials))
     logging.info(f"Changed working directory to {os.getcwd()} to locate credentials.json.")
 
-    # Build the Gmail query from user filters
+    # Build the Gmail query from user filters.
     query: str = build_query(args)
     logging.info(f"Using query: {query}")
 
-    # Initialize the Gmail service with the specified credentials file
+    # Initialize the Gmail service with the specified credentials file.
     service: Any = get_gmail_service(credentials_file=args.credentials)
 
-    # Retrieve matching emails
+    # Retrieve matching emails.
     emails: List[Dict[str, Any]] = list_filtered_emails(service, query)
     logging.info(f"Found {len(emails)} emails matching the criteria.")
 
-    # Print emails to the console
+    # Print emails to the console.
     print(json.dumps(emails, indent=2, ensure_ascii=False))
 
-    # Save emails to the output file
+    # Save emails to the output file and log a summary.
     try:
         with open(args.output, "w", encoding="utf-8") as f:
             json.dump(emails, f, indent=2, ensure_ascii=False)
-        logging.info(f"Emails successfully saved to '{args.output}'")
+        # Prepare summary details
+        email_count = len(emails)
+        subjects = [email_obj.get("subject", "No subject") for email_obj in emails]
+        subject_summary = ", ".join(subjects)
+        logging.info(f"{email_count} Emails successfully saved to '{args.output}', with subjects '{subject_summary}'")
     except Exception as e:
         logging.error(f"Failed to save emails to file: {e}")
 
 
+# =============================================================================
+# STANDALONE SCRIPT EXECUTION
+# =============================================================================
 if __name__ == "__main__":
     main()
